@@ -28,7 +28,7 @@ rag.add([
 
 To query the db use the method ```query(query: str, k = 5)```, k defines how many of the top results are shown
 
-```
+``` python
 rag.query("hello world", k=5)
 ```
 
@@ -36,6 +36,6 @@ rag.query("hello world", k=5)
 
 To load the db at the beginning of your program simply call ```.load()``` instead of ```.create()```
 
-```
+``` python
 rag.load()
 ```
