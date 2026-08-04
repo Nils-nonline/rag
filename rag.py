@@ -25,20 +25,22 @@ class RAG_DB:
         self.db_end = None
         self.data = None
 
+    def ram_only(self):
+        self.RAM_ONLY = True
+        self.CHUNK_SIZE = 1_000_000_000
     def create(self, force=False):
-        if self.RAM_ONLY: return
-        
-        if not os.path.exists(self.file_name):
-            os.makedirs(self.file_name)
-        else:
-            if not force:
-                raise Exception("db already exists")
+        if not self.RAM_ONLY:
+            if not os.path.exists(self.file_name):
+                os.makedirs(self.file_name)
             else:
-                shutil.rmtree(self.file_name)
-                os.mkdir(self.file_name)
-
-        with open(f"{self.file_name}data.json", "w") as f:
-            f.write("0")
+                if not force:
+                    raise Exception("db already exists")
+                else:
+                    shutil.rmtree(self.file_name)
+                    os.mkdir(self.file_name)
+    
+            with open(f"{self.file_name}data.json", "w") as f:
+                f.write("0")
 
         self.cursor = 0
         self.db_end = 0
@@ -46,8 +48,6 @@ class RAG_DB:
         self.texts = None
 
     def load(self):
-        if self.RAM_ONLY: return
-        
         self.file_name = normalize(self.file_name)
 
         if not os.path.exists(self.file_name):
@@ -122,6 +122,9 @@ class RAG_DB:
             self.load_texts(chunk)
 
     def add(self, strings):
+        if self.db_end is None:
+            raise Exception("db not initialized")
+            
         strings = list(set(strings))
 
         in_chunk_pos = self.db_end % self.CHUNK_SIZE
@@ -163,11 +166,14 @@ class RAG_DB:
 
         self.db_end += len(new_embeddings)
 
-        with open(f"{self.file_name}data.json", "w") as f:
-            f.write(str(self.db_end))
+        if not self.RAM_ONLY:
+            with open(f"{self.file_name}data.json", "w") as f:
+                f.write(str(self.db_end))
 
     def query(self, query, k=5):
-
+        if self.db_end is None:
+            raise Exception("db not initialized")
+        
         query_embedding = model.encode(query, normalize_embeddings=True)
 
         chunk = 0
