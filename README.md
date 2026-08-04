@@ -18,7 +18,7 @@ recommended python version: 3.11.7
 
 # Getting started
 
-## Quicksttart
+## Quickstart
 
 have a look at the ```examples```-folder for a quickstart.
 
