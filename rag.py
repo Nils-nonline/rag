@@ -161,17 +161,21 @@ class RAG_DB:
 
         new_embeddings = model.encode(strings, normalize_embeddings=True)
 
-        self.load_position(self.db_end, "both", test=True)
-
-        if self.embeddings is None:
-            self.embeddings = new_embeddings
-        else:
-            self.embeddings = np.concatenate((self.embeddings, new_embeddings), axis=0)
-
-        if self.texts is None:
+        if self.db_end % self.CHUNK_SIZE == 0: # if chunk is empty anyway
             self.texts = strings
-        else:
-            self.texts += strings
+            self.embeddings = new_embeddings
+        else: # if chunk is non-empty
+            self.load_position(self.db_end, "both", test=True)
+    
+            if self.embeddings is None:
+                self.embeddings = new_embeddings
+            else:
+                self.embeddings = np.concatenate((self.embeddings, new_embeddings), axis=0)
+    
+            if self.texts is None:
+                self.texts = strings
+            else:
+                self.texts += strings
 
         self.save_position(self.db_end, "both")
 
@@ -239,7 +243,7 @@ class RAG_DB:
                     new_top_indices[target_index + source_index] = all_top_indices[target_index]
                     target_index += 1
                         
-
+                del all_top_indices
                 all_top_indices = new_top_indices
 
             chunk += 1
