@@ -28,6 +28,7 @@ class RAG_DB:
     def ram_only(self):
         self.RAM_ONLY = True
         self.CHUNK_SIZE = 1_000_000_000
+        
     def create(self, force=False):
         if not self.RAM_ONLY:
             if not os.path.exists(self.file_name):
@@ -60,9 +61,15 @@ class RAG_DB:
         self.texts = None
 
     def save_embeddings(self, chunk):
+        if self.embeddings is None:
+            raise Exception("no embeddings to save")
+        
         np.save(f"{self.file_name}embed-{chunk}.npy", self.embeddings)
 
     def save_texts(self, chunk):
+        if self.texts is None:
+            raise Exception("no texts to save")
+        
         with open(f"{self.file_name}text-{chunk}.txt", "w") as file:
             file.write(self.SEPERATOR.join(self.texts))
 
@@ -85,25 +92,29 @@ class RAG_DB:
     def save_position(self, position, to_save="both"):
         self.save_chunk(self.pos2chunk(position), to_save)
 
-    def load_embeddings(self, chunk):
+    def load_embeddings(self, chunk, test = False):
         if not os.path.exists(f"{self.file_name}embed-{chunk}.npy"):
-            self.embeddings = None
-            return
+            if test:
+                self.embeddings = None
+                return
+            raise Exception(f"no embeddings to load under './{self.file_name}embed-{chunk}.npy'")
 
         self.embeddings = np.load(f"{self.file_name}embed-{chunk}.npy")
 
-    def load_texts(self, chunk):
+    def load_texts(self, chunk, test = False):
         if not os.path.exists(f"{self.file_name}text-{chunk}.txt"):
-            self.texts = None
-            return
+            if test:
+                self.embeddings = None
+                return
+            raise Exception(f"no texts to load under './{self.file_name}text-{chunk}.txt'")
 
         with open(f"{self.file_name}text-{chunk}.txt", "r") as file:
             self.texts = file.read().split(self.SEPERATOR)
 
-    def load_position(self, position, to_load="both"):
-        self.load_chunk(self.pos2chunk(position), to_load)
+    def load_position(self, position, to_load="both", test = False):
+        self.load_chunk(self.pos2chunk(position), to_load=to_load, test=test)
 
-    def load_chunk(self, chunk, to_load="both"):
+    def load_chunk(self, chunk, to_load="both", test = False):
         if self.RAM_ONLY: return
         
         if self.cursor == chunk:
@@ -112,14 +123,14 @@ class RAG_DB:
         self.cursor = chunk
 
         if to_load == "embedding":
-            self.load_embeddings(chunk)
+            self.load_embeddings(chunk, test)
 
         if to_load == "texts":
-            self.load_texts(chunk)
+            self.load_texts(chunk, test)
 
         if to_load == "both":
-            self.load_embeddings(chunk)
-            self.load_texts(chunk)
+            self.load_embeddings(chunk, test)
+            self.load_texts(chunk, test)
 
     def add(self, strings):
         if self.db_end is None:
@@ -150,7 +161,7 @@ class RAG_DB:
 
         new_embeddings = model.encode(strings, normalize_embeddings=True)
 
-        self.load_position(self.db_end, "both")
+        self.load_position(self.db_end, "both", test=True)
 
         if self.embeddings is None:
             self.embeddings = new_embeddings
@@ -180,35 +191,56 @@ class RAG_DB:
 
         all_top_indices = []
         indices_to_text = {}
-
+            
         while chunk * self.CHUNK_SIZE < self.db_end:
             self.load_chunk(chunk)
 
+
+            if self.embeddings is None:
+                 raise Exception("embeddings loaded but still None")
+
+            if self.texts is None:
+                 raise Exception("texts loaded but still None")
+            
             k = min(len(self.embeddings), k)
             
             scores = self.embeddings @ query_embedding  # cosine similarity
+            # scores are the local scores
 
             top_indices = np.argpartition(scores, -k)[-k:]
             top_indices = top_indices[
                 np.argsort(scores[top_indices])[::-1]
             ]  # top k indices
 
-            if len(all_top_indices) == 0:
+            # top_indices is local list of indices corresponding to score
+
+            if len(all_top_indices) == 0: # fill all_top_indices with candidates if its empty
                 for i in top_indices:
                     indices_to_text[chunk * self.CHUNK_SIZE + i] = self.texts[i]
                     all_top_indices.append([chunk * self.CHUNK_SIZE + i, scores[i]])
-            else:
-                for i in top_indices:
-                    for i_ in range(0, len(all_top_indices)):
-                        if all_top_indices[i_][1] < scores[i]:
-                            all_top_indices.insert(
-                                i_, [chunk * self.CHUNK_SIZE + i, scores[i]]
-                            )
-                            indices_to_text[chunk * self.CHUNK_SIZE + i] = self.texts[i]
+            else: # merge current top indices with top indices in a top-k-list
+                source_index = 0
+                target_index = 0
+                new_top_indices: list = [None] * k
+                
+                while (source_index + target_index) < k:
+                    top_i = top_indices[source_index]
+                    
+                    while scores[top_i] > all_top_indices[target_index][1] and (source_index + target_index) < k:
+                        new_top_indices[target_index + source_index] = [chunk * self.CHUNK_SIZE + top_i, scores[top_i]]
 
-                            del indices_to_text[all_top_indices[-1][0]]
-                            del all_top_indices[-1]
-                            break
+                        indices_to_text[chunk * self.CHUNK_SIZE + top_i] = self.texts[top_i]
+
+                        source_index += 1
+                        top_i = top_indices[source_index]
+
+                    if (source_index + target_index) >= k: break
+                    
+                    new_top_indices[target_index + source_index] = all_top_indices[target_index]
+                    target_index += 1
+                        
+
+                all_top_indices = new_top_indices
 
             chunk += 1
 
